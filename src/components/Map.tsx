@@ -37,21 +37,8 @@ function getTileUrl(style: TileStyleKey): string {
 }
 
 function ZoomControl() {
-  const map = useMap()
-
-  useEffect(() => {
-    // Determine position based on screen size
-    const isMobile = window.innerWidth < 768
-    const position = isMobile ? 'bottomright' : 'topleft'
-
-    const zoomControl = L.control.zoom({ position })
-    zoomControl.addTo(map)
-
-    return () => {
-      zoomControl.remove()
-    }
-  }, [map])
-
+  // Zoom controls disabled - users can use scroll wheel or pinch-to-zoom
+  // Removing buttons prevents UI overlap with legend and cleaner mobile experience
   return null
 }
 

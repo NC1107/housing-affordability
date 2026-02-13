@@ -81,7 +81,7 @@ export default function ZipInfoBox({ entry, affordability, onClose }: ZipInfoBox
       ref={boxRef}
       className={`
         absolute z-[1001] w-80 max-w-[calc(100vw-2rem)]
-        top-4 right-4 md:top-4 md:right-4
+        top-4 left-4 md:top-4 md:left-4
         ${config.bg} ${config.border} border-2 rounded-lg shadow-2xl p-4
         animate-in slide-in-from-top-4 duration-300
       `}

@@ -7,7 +7,7 @@ export default function MapLegend({ mode }: MapLegendProps) {
 
   return (
     <div
-      className="absolute bottom-2 right-2 md:bottom-4 md:right-4 bg-white/95 backdrop-blur-sm border border-gray-300 rounded-lg shadow-lg p-2 md:p-3 z-[1000] text-xs md:text-sm max-w-[200px] md:max-w-none"
+      className="absolute bottom-16 right-2 md:bottom-4 md:right-4 bg-white/95 backdrop-blur-sm border border-gray-300 rounded-lg shadow-lg p-2 md:p-3 z-[1000] text-xs md:text-sm max-w-[200px] md:max-w-none"
       role="region"
       aria-label="Map legend"
     >

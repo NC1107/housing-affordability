@@ -509,7 +509,7 @@ export default function App() {
   }, [zipMarkers, showUnaffordable])
 
   return (
-    <div className="flex h-screen bg-white relative">
+    <div className="flex h-dvh md:h-screen bg-white relative overflow-hidden">
       {/* Hamburger Menu Button (mobile only) - positioned top-right to avoid map controls */}
       <button
         onClick={() => setSidebarOpen(!sidebarOpen)}

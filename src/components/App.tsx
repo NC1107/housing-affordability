@@ -47,6 +47,7 @@ export default function App() {
   const [focusZip, setFocusZip] = useState<{ lat: number; lon: number; zip: string; _t: number } | null>(null)
   const [highlightedZip, setHighlightedZip] = useState<string | null>(null)
   const [maxPrice, setMaxPrice] = useState<number | null>(null)
+  const [apiWarningDismissed, setApiWarningDismissed] = useState(false)
 
   // Income search state
   const [stateGeoJson, setStateGeoJson] = useState<GeoJSON.FeatureCollection | null>(null)
@@ -155,7 +156,7 @@ export default function App() {
     try {
       // Load US states GeoJSON if not cached
       if (!stateGeoJson) {
-        const res = await fetch('/data/us-states.json')
+        const res = await fetch(`${import.meta.env.BASE_URL}data/us-states.json`)
         if (res.ok) {
           setStateGeoJson(await res.json())
         }
@@ -553,19 +554,30 @@ export default function App() {
           </div>
 
           {/* API key warning */}
-          {!apiReady && (
-            <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm text-amber-800">
-              <strong>API key missing.</strong> Copy{' '}
-              <code className="bg-amber-100 px-1 rounded">.env.example</code> to{' '}
-              <code className="bg-amber-100 px-1 rounded">.env</code> and add your{' '}
-              <a
-                href="https://myprojects.geoapify.com/register"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="underline"
+          {!apiReady && !apiWarningDismissed && (
+            <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm text-amber-800 relative">
+              <button
+                onClick={() => setApiWarningDismissed(true)}
+                className="absolute top-2 right-2 p-1 rounded-full hover:bg-amber-100 transition-colors"
+                aria-label="Close API key warning"
               >
-                Geoapify API key
-              </a>.
+                <svg className="w-4 h-4 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+              <div className="pr-6">
+                <strong>API key missing.</strong> Copy{' '}
+                <code className="bg-amber-100 px-1 rounded">.env.example</code> to{' '}
+                <code className="bg-amber-100 px-1 rounded">.env</code> and add your{' '}
+                <a
+                  href="https://myprojects.geoapify.com/register"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="underline"
+                >
+                  Geoapify API key
+                </a>.
+              </div>
             </div>
           )}
 

@@ -37,7 +37,7 @@ const zctaCache = new Map<string, GeoJSON.FeatureCollection>()
 export async function loadZctaBoundaries(stateCode: string): Promise<GeoJSON.FeatureCollection | null> {
   if (zctaCache.has(stateCode)) return zctaCache.get(stateCode)!
   try {
-    const res = await fetch(`/data/zcta/${stateCode}.json`)
+    const res = await fetch(`${import.meta.env.BASE_URL}data/zcta/${stateCode}.json`)
     if (!res.ok) return null
     const geojson = await res.json() as GeoJSON.FeatureCollection
     zctaCache.set(stateCode, geojson)
@@ -54,7 +54,7 @@ let centroidCache: ZipCentroid | null = null
 async function loadHousingData(): Promise<RawHousingData> {
   if (housingDataCache) return housingDataCache
   try {
-    const res = await fetch('/data/housing-data.json')
+    const res = await fetch(`${import.meta.env.BASE_URL}data/housing-data.json`)
     if (!res.ok) throw new Error('Housing data not found')
     const raw = await res.json()
     // Extract _meta before caching zip data
@@ -74,7 +74,7 @@ async function loadHousingData(): Promise<RawHousingData> {
 async function loadCentroids(): Promise<ZipCentroid> {
   if (centroidCache) return centroidCache
   try {
-    const res = await fetch('/data/zip-centroids.json')
+    const res = await fetch(`${import.meta.env.BASE_URL}data/zip-centroids.json`)
     if (!res.ok) throw new Error('Centroid data not found')
     centroidCache = await res.json()
     return centroidCache!

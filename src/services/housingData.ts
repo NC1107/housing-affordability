@@ -8,6 +8,8 @@ interface ZipRecord {
   state?: string
   medianHomeValue: number | null
   medianRent: number | null
+  landSharePct?: number | null
+  landValuePerAcre?: number | null
   fmr?: {
     br0: number | null
     br1: number | null
@@ -28,6 +30,21 @@ interface ZipCentroid {
     properties: { ZCTA5CE20: string }
     geometry: { type: 'Point'; coordinates: [number, number] }
   }>
+}
+
+const zctaCache = new Map<string, GeoJSON.FeatureCollection>()
+
+export async function loadZctaBoundaries(stateCode: string): Promise<GeoJSON.FeatureCollection | null> {
+  if (zctaCache.has(stateCode)) return zctaCache.get(stateCode)!
+  try {
+    const res = await fetch(`/data/zcta/${stateCode}.json`)
+    if (!res.ok) return null
+    const geojson = await res.json() as GeoJSON.FeatureCollection
+    zctaCache.set(stateCode, geojson)
+    return geojson
+  } catch {
+    return null
+  }
 }
 
 let housingDataCache: RawHousingData | null = null
@@ -144,11 +161,45 @@ export async function getHousingForIsochrone(
         lon,
         medianHomeValue: data?.medianHomeValue ?? null,
         medianRent: data?.medianRent ?? null,
+        landSharePct: data?.landSharePct,
+        landValuePerAcre: data?.landValuePerAcre,
         fmr: data?.fmr,
       }
     })
 
   return buildStats(entries)
+}
+
+/**
+ * Get housing data for isochrone with affordability tiers calculated.
+ * Combines geographic filtering (isochrone) with affordability calculation.
+ * Returns stats and ZIP markers with tier colors for map display.
+ */
+export async function getAffordableForIsochrone(
+  isochroneGeoJson: GeoJSON.FeatureCollection,
+  affordability: AffordabilityInputs
+): Promise<{ stats: HousingStats; zipMarkers: Array<{ lat: number; lon: number; zip: string; tier: 'affordable' | 'stretch' | 'unaffordable'; medianHomeValue: number | null; medianRent: number | null }> }> {
+  // First, get ZIPs within isochrone
+  const stats = await getHousingForIsochrone(isochroneGeoJson)
+
+  // Then calculate affordability tiers for each ZIP, filtering out 'unknown'
+  const zipMarkers = stats.entries
+    .map((entry) => {
+      const tier = getAffordabilityTier(entry.medianHomeValue, affordability)
+      return {
+        zip: entry.zip,
+        lat: entry.lat,
+        lon: entry.lon,
+        tier,
+        medianHomeValue: entry.medianHomeValue,
+        medianRent: entry.medianRent,
+      }
+    })
+    .filter((marker): marker is { zip: string; lat: number; lon: number; tier: 'affordable' | 'stretch' | 'unaffordable'; medianHomeValue: number | null; medianRent: number | null } =>
+      marker.tier !== 'unknown'
+    )
+
+  return { stats, zipMarkers }
 }
 
 /**
@@ -186,6 +237,8 @@ export async function getAffordableNationwide(
       lon: coords.lon,
       medianHomeValue: data.medianHomeValue,
       medianRent: data.medianRent,
+      landSharePct: data.landSharePct,
+      landValuePerAcre: data.landValuePerAcre,
       fmr: data.fmr,
     }
 
@@ -199,14 +252,13 @@ export async function getAffordableNationwide(
 
     if (data.medianHomeValue !== null) {
       stateInfo.total++
+      stateInfo.entries.push(entry)  // Always push entry to state
+      allEntries.push(entry)  // Always push to allEntries
+
       if (tier === 'affordable') {
         stateInfo.affordable++
-        stateInfo.entries.push(entry)
-        allEntries.push(entry)
       } else if (tier === 'stretch') {
         stateInfo.stretch++
-        stateInfo.entries.push(entry)
-        allEntries.push(entry)
       } else {
         stateInfo.unaffordable++
       }

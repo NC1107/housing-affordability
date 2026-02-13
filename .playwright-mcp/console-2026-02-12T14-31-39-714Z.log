@@ -1,3 +1,0 @@
-[     383ms] [ERROR] Failed to load resource: the server responded with a status of 404 (Not Found) @ http://localhost:5174/favicon.ico:0
-[  510842ms] [ERROR] Failed to load resource: the server responded with a status of 500 (Internal Server Error) @ http://localhost:5174/@fs/C:/Users/18862/Documents/projects/house/src/components/HousingTable.tsx?t=1770907210545:0
-[  510842ms] [ERROR] [vite] Failed to reload /@fs/C:\Users\18862\Documents\projects\house\src\components\HousingTable.tsx. This could be due to syntax errors or importing non-existent modules. (see errors above) @ http://localhost:5174/@vite/client:881

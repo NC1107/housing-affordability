@@ -12,6 +12,9 @@ export interface HousingDataEntry {
   lon: number
   medianHomeValue: number | null
   medianRent: number | null
+  landSharePct?: number | null
+  landValuePerAcre?: number | null
+  appreciation5yr?: number | null  // 5-year home value appreciation percentage
   fmr?: {
     br0: number | null
     br1: number | null
@@ -24,6 +27,7 @@ export interface HousingDataEntry {
 export interface DataMeta {
   zhviDate: string | null
   zoriDate: string | null
+  aeiYear?: string | null
   fetchedAt: string | null
 }
 
@@ -53,9 +57,17 @@ export interface AffordabilityInputs {
   hoaMonthly: number       // default 0 ($)
   frontDtiPct: number      // default 28 (%)
   backDtiPct: number       // default 36 (%)
+  // Monthly spending (groceries, utilities, gas, etc.)
+  monthlySpending: number  // default 0 ($)
+  includeSpending: boolean // default false - whether to factor spending into affordability
+  // Manual max price override
+  manualMaxPrice: number | null      // User-set max price (null = use calculated)
+  useManualMaxPrice: boolean          // Toggle between manual and calculated
 }
 
 export type AffordabilityTier = 'affordable' | 'stretch' | 'unaffordable' | 'unknown'
+
+export type SummaryContext = 'commute' | 'state' | 'nationwide' | 'none'
 
 export interface StateAffordability {
   state: string           // "NY"

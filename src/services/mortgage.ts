@@ -49,13 +49,15 @@ export function calculateFullMonthlyPayment(
 
 /**
  * Max home price based on front-end DTI ratio, accounting for taxes, insurance, PMI, HOA, and debts.
+ * Uses TRADITIONAL DTI calculation (excludes monthly spending - that affects tier, not max price).
  * Uses iterative approach since taxes/PMI scale with home price.
  */
 export function calculateMaxHomePrice(inputs: AffordabilityInputs): number {
   if (!inputs.annualIncome || inputs.annualIncome <= 0) return 0
 
   const maxMonthly = (inputs.annualIncome / 12) * (inputs.frontDtiPct / 100)
-  // Subtract existing monthly obligations that eat into housing budget
+  // Traditional DTI: only debts reduce housing budget, NOT living expenses
+  // Monthly spending will be factored into tier calculation via cash flow check
   const availableForHousing = maxMonthly - inputs.monthlyDebts
   if (availableForHousing <= 0) return 0
 
@@ -75,11 +77,31 @@ export function calculateMaxHomePrice(inputs: AffordabilityInputs): number {
 }
 
 /**
+ * Get the effective max home price - either user-set manual price or calculated DTI-based price.
+ * Use this instead of calculateMaxHomePrice() when displaying/using the max price.
+ */
+export function getEffectiveMaxPrice(inputs: AffordabilityInputs): number | null {
+  if (inputs.useManualMaxPrice && inputs.manualMaxPrice !== null && inputs.manualMaxPrice > 0) {
+    return inputs.manualMaxPrice
+  }
+  if (!inputs.annualIncome || inputs.annualIncome <= 0) return null
+  return calculateMaxHomePrice(inputs)
+}
+
+/**
  * Determine affordability tier for a home at the given price.
- * Uses full monthly cost (P&I + tax + insurance + PMI + HOA) + debts.
- * - affordable: ≤ front-end DTI %
- * - stretch: front-end – back-end DTI %
- * - unaffordable: > back-end DTI %
+ * Uses TRADITIONAL DTI for base tier (housing + debts only),
+ * then applies cash flow check if monthly spending is included.
+ *
+ * Base DTI tiers:
+ * - affordable: ≤ front-end DTI % (28%)
+ * - stretch: front-end – back-end DTI % (28-36%)
+ * - unaffordable: > back-end DTI % (>36%)
+ *
+ * Cash flow adjustments (when includeSpending is true):
+ * - Downgrades tier if remaining cash flow is insufficient
+ * - Requires 15% cushion for affordable, 25% for stretch
+ * - Enforces $500/month absolute minimum regardless of income
  */
 export function getAffordabilityTier(
   homePrice: number | null,
@@ -89,13 +111,42 @@ export function getAffordabilityTier(
     return 'unknown'
   }
 
-  const { total } = calculateFullMonthlyPayment(homePrice, inputs)
-  const totalWithDebts = total + inputs.monthlyDebts
-
+  const { total: housingPayment } = calculateFullMonthlyPayment(homePrice, inputs)
   const grossMonthlyIncome = inputs.annualIncome / 12
-  const ratio = totalWithDebts / grossMonthlyIncome
 
-  if (ratio <= inputs.frontDtiPct / 100) return 'affordable'
-  if (ratio <= inputs.backDtiPct / 100) return 'stretch'
-  return 'unaffordable'
+  // Calculate TRADITIONAL DTI tier (housing + debts only, NO spending)
+  const totalDebts = housingPayment + inputs.monthlyDebts
+  const dtiRatio = totalDebts / grossMonthlyIncome
+
+  let tier: AffordabilityTier
+  if (dtiRatio <= inputs.frontDtiPct / 100) tier = 'affordable'
+  else if (dtiRatio <= inputs.backDtiPct / 100) tier = 'stretch'
+  else tier = 'unaffordable'
+
+  // If includeSpending is enabled, perform cash flow check
+  // This may DOWNGRADE the tier based on remaining disposable income
+  if (inputs.includeSpending && inputs.monthlySpending > 0) {
+    const remainingCashFlow = grossMonthlyIncome - totalDebts - inputs.monthlySpending
+    const cashFlowPct = remainingCashFlow / grossMonthlyIncome
+
+    // Financial expert thresholds: 15% for affordable, 25% for stretch
+    // Also enforce $500/month absolute minimum cushion
+    const MINIMUM_MONTHLY_CUSHION = 500
+
+    if (remainingCashFlow < 0) {
+      // Negative cash flow = definitely unaffordable
+      tier = 'unaffordable'
+    } else if (remainingCashFlow < MINIMUM_MONTHLY_CUSHION) {
+      // Below absolute minimum = unaffordable regardless of percentage
+      tier = 'unaffordable'
+    } else if (cashFlowPct < 0.15 && tier === 'affordable') {
+      // Less than 15% buffer on "affordable" = downgrade to stretch
+      tier = 'stretch'
+    } else if (cashFlowPct < 0.25 && tier === 'stretch') {
+      // Less than 25% buffer on "stretch" = downgrade to unaffordable
+      tier = 'unaffordable'
+    }
+  }
+
+  return tier
 }

@@ -22,10 +22,11 @@ export default function Controls({
         <label className="block text-sm font-medium text-gray-700 mb-1">
           Travel Mode
         </label>
-        <div className="flex rounded-lg overflow-hidden border border-gray-300">
+        <div className="flex rounded-lg overflow-hidden border border-gray-300" role="group" aria-label="Travel mode selection">
           <button
             onClick={() => onModeChange('drive')}
             disabled={disabled}
+            aria-pressed={mode === 'drive'}
             className={`flex-1 px-3 py-2 text-sm font-medium transition-colors
               ${mode === 'drive'
                 ? 'bg-blue-600 text-white'
@@ -37,6 +38,7 @@ export default function Controls({
           <button
             onClick={() => onModeChange('transit')}
             disabled={disabled}
+            aria-pressed={mode === 'transit'}
             className={`flex-1 px-3 py-2 text-sm font-medium transition-colors border-l border-gray-300
               ${mode === 'transit'
                 ? 'bg-blue-600 text-white'
@@ -61,9 +63,13 @@ export default function Controls({
           value={minutes}
           onChange={(e) => onMinutesChange(parseInt(e.target.value))}
           disabled={disabled}
+          aria-valuemin={5}
+          aria-valuemax={60}
+          aria-valuenow={minutes}
+          aria-valuetext={`${minutes} minutes`}
           className="w-full accent-blue-600 disabled:opacity-50"
         />
-        <div className="flex justify-between text-xs text-gray-400 mt-1">
+        <div className="flex justify-between text-xs text-gray-500 mt-1">
           <span>5 min</span>
           <span>30 min</span>
           <span>60 min</span>

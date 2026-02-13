@@ -1,5 +1,51 @@
-node_modules
-dist
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+
+# Environment variables
 .env
-public/data/
-*.local
+.env*.local
+
+# TypeScript build info
+*.tsbuildinfo
+
+# Testing and debug artifacts
+.playwright-mcp/
+test-*.png
+*.log
+
+# OS files
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# IDE
+.idea/
+.vscode/settings.json
+*.swp
+*.swo
+*~
+
+# Claude Code settings (local only)
+.claude/settings.local.json
+
+# Temporary files
+*.tmp
+*.temp
+nul
+
+# Large data files in scripts (keep processed data in public/data/)
+scripts/*.xlsx
+scripts/*.zip
+scripts/*.shp
+scripts/*.dbf
+scripts/*.prj
+scripts/*.shx
+scripts/*.cpg
+scripts/*.xml
+
+# Optional: Keep VS Code workspace settings
+# Remove this line if you want to commit VS Code settings
+# .vscode/

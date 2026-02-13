@@ -1,6 +1,7 @@
 /**
  * Downloads Zillow ZHVI (home values) and ZORI (rents) CSVs,
- * plus Census ZCTA centroids and US state boundaries, and outputs:
+ * AEI Land Price Indicators, Census ZCTA centroids, and US state
+ * boundaries, and outputs:
  *   public/data/housing-data.json
  *   public/data/zip-centroids.json
  *   public/data/us-states.json
@@ -11,6 +12,7 @@ import { parse } from 'csv-parse/sync'
 import { writeFileSync, mkdirSync, existsSync } from 'fs'
 import { join } from 'path'
 import AdmZip from 'adm-zip'
+import * as XLSX from 'xlsx'
 
 const OUT_DIR = join(import.meta.dirname, '..', 'public', 'data')
 
@@ -21,6 +23,9 @@ const ZORI_URL = 'https://files.zillowstatic.com/research/public_csvs/zori/Zip_z
 // Census Bureau ZCTA Gazetteer (tab-delimited inside a ZIP archive, has lat/lon centroids)
 const GAZETTEER_URL = 'https://www2.census.gov/geo/docs/maps-data/data/gazetteer/2023_Gazetteer/2023_Gaz_zcta_national.zip'
 const GAZETTEER_FALLBACK = 'https://www2.census.gov/geo/docs/maps-data/data/gazetteer/2020_Gazetteer/2020_Gaz_zcta_national.zip'
+
+// AEI Land Price Indicators (ZIP-level land share data)
+const AEI_LAND_URL = 'https://www.aei.org/wp-content/uploads/2025/08/AEI_adjusted-Land-Data-2024.xlsx'
 
 // US state boundaries GeoJSON (20m resolution — lightweight, ~1.2 MB)
 const US_STATES_URL = 'https://cdn.jsdelivr.net/npm/us-atlas@3/states-10m.json'
@@ -63,6 +68,42 @@ function getLatestDateColumn(rows: Record<string, string>[]): string | null {
   if (!rows.length) return null
   const dateKeys = Object.keys(rows[0]).filter((k) => /^\d{4}-\d{2}-\d{2}$/.test(k))
   return dateKeys.length ? dateKeys[dateKeys.length - 1] : null
+}
+
+/**
+ * Calculate 5-year home value appreciation percentage
+ * Returns null if insufficient data
+ */
+function calculate5YearAppreciation(row: Record<string, string>): number | null {
+  const dateKeys = Object.keys(row).filter((k) => /^\d{4}-\d{2}-\d{2}$/.test(k)).sort()
+  if (dateKeys.length < 60) return null  // Need at least 60 months of data
+
+  // Get most recent non-null value
+  let currentValue: number | null = null
+  for (let i = dateKeys.length - 1; i >= 0 && currentValue === null; i--) {
+    const val = row[dateKeys[i]]
+    if (val && val.trim() !== '') {
+      const num = parseFloat(val)
+      if (!isNaN(num)) currentValue = num
+    }
+  }
+  if (currentValue === null) return null
+
+  // Get value from ~60 months ago (going back from the last non-null value)
+  const startIndex = Math.max(0, dateKeys.length - 60)
+  let oldValue: number | null = null
+  for (let i = startIndex; i < dateKeys.length && oldValue === null; i++) {
+    const val = row[dateKeys[i]]
+    if (val && val.trim() !== '') {
+      const num = parseFloat(val)
+      if (!isNaN(num)) oldValue = num
+    }
+  }
+  if (oldValue === null || oldValue === 0) return null
+
+  // Calculate percentage change
+  const pctChange = ((currentValue - oldValue) / oldValue) * 100
+  return Math.round(pctChange * 10) / 10  // Round to 1 decimal place
 }
 
 function parseGazetteerText(text: string) {
@@ -129,6 +170,7 @@ async function main() {
   // --- 1. Fetch Zillow ZHVI (home values) ---
   // Track state+city per zip from ZHVI rows
   let zhviMap: Record<string, number | null> = {}
+  let appreciationMap: Record<string, number | null> = {}  // 5-year appreciation %
   const zipStateMap: Record<string, string> = {}   // zip → "NY"
   const zipNameMap: Record<string, string> = {}     // zip → "New York, NY"
   let zhviDate: string | null = null
@@ -143,6 +185,7 @@ async function main() {
       const zip = (row['RegionName'] || '').padStart(5, '0')
       if (zip.length === 5) {
         zhviMap[zip] = getLatestValue(row)
+        appreciationMap[zip] = calculate5YearAppreciation(row)
         // Capture state and city info
         const state = row['State'] || ''
         const city = row['City'] || ''
@@ -191,23 +234,98 @@ async function main() {
     console.warn('  Warning: Could not fetch ZORI data:', (err as Error).message)
   }
 
-  // --- 3. Merge into housing-data.json ---
-  const allZips = new Set([...Object.keys(zhviMap), ...Object.keys(zoriMap)])
-  const zipData: Record<string, { state?: string; name?: string; medianHomeValue: number | null; medianRent: number | null }> = {}
+  // --- 3. Fetch AEI Land Price Indicators (XLSX) ---
+  let zipLandMap: Record<string, number> = {}
+  let zipLandPerAcreMap: Record<string, number> = {}
+  let aeiYear: string | null = null
+  try {
+    const aeiPath = join(import.meta.dirname, 'aei-data.xlsx')
+    let aeiBuffer: Buffer
 
+    // Use cached file if it exists (32+ MB download)
+    if (existsSync(aeiPath)) {
+      console.log('Using cached AEI Land Data XLSX...')
+      const { readFileSync } = await import('fs')
+      aeiBuffer = readFileSync(aeiPath)
+    } else {
+      console.log('Downloading AEI Land Data XLSX (~32 MB)...')
+      const res = await fetch(AEI_LAND_URL)
+      if (!res.ok) throw new Error(`Failed: ${res.status} ${res.statusText}`)
+      aeiBuffer = Buffer.from(await res.arrayBuffer())
+      writeFileSync(aeiPath, aeiBuffer)
+      console.log(`  Cached to ${aeiPath}`)
+    }
+
+    const workbook = XLSX.read(aeiBuffer, { type: 'buffer' })
+    const sheet = workbook.Sheets['ZIPCode']
+    if (!sheet) throw new Error('ZIPCode sheet not found in AEI workbook')
+
+    const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet)
+    console.log(`  Parsed ${rows.length} AEI ZIP rows`)
+
+    // Find the latest year in the data
+    const years = [...new Set(rows.map(r => Number(r['Year'])))].sort((a, b) => b - a)
+    const latestYear = years[0]
+    aeiYear = String(latestYear)
+    console.log(`  Latest AEI year: ${latestYear}`)
+
+    // Filter to latest year and extract land share + land value per acre by ZIP
+    for (const row of rows) {
+      if (Number(row['Year']) !== latestYear) continue
+      const zip = String(row['ZIP Code'] || '').padStart(5, '0')
+      if (zip.length !== 5) continue
+
+      const landShare = row['Land Share of Property Value']
+      if (typeof landShare === 'number' && !isNaN(landShare)) {
+        // landShare is 0-1 decimal, convert to percentage (0-100)
+        zipLandMap[zip] = Math.round(landShare * 1000) / 10 // e.g. 0.357 → 35.7
+      }
+
+      const landPerAcre = row['Land Value (Per Acre, As-Is)']
+      if (typeof landPerAcre === 'number' && !isNaN(landPerAcre) && landPerAcre > 0) {
+        zipLandPerAcreMap[zip] = Math.round(landPerAcre)
+      }
+    }
+    console.log(`  Land share data for ${Object.keys(zipLandMap).length} ZIPs`)
+    console.log(`  Land $/acre data for ${Object.keys(zipLandPerAcreMap).length} ZIPs`)
+  } catch (err) {
+    console.warn('  Warning: Could not fetch AEI land data:', (err as Error).message)
+    console.warn('  Land share data will not be available.')
+  }
+
+  // --- 4. Merge into housing-data.json ---
+  const allZips = new Set([...Object.keys(zhviMap), ...Object.keys(zoriMap)])
+  const zipData: Record<string, { state?: string; name?: string; medianHomeValue: number | null; medianRent: number | null; landSharePct?: number | null; landValuePerAcre?: number | null; appreciation5yr?: number | null }> = {}
+
+  let landMatchCount = 0
+  let acreMatchCount = 0
+  let appreciationCount = 0
   for (const zip of allZips) {
+    const landShare = zipLandMap[zip]
+    const landPerAcre = zipLandPerAcreMap[zip]
+    const appreciation = appreciationMap[zip]
     zipData[zip] = {
       ...(zipStateMap[zip] ? { state: zipStateMap[zip] } : {}),
       ...(zipNameMap[zip] ? { name: zipNameMap[zip] } : {}),
       medianHomeValue: zhviMap[zip] ?? null,
       medianRent: zoriMap[zip] ?? null,
+      ...(landShare !== undefined ? { landSharePct: landShare } : {}),
+      ...(landPerAcre !== undefined ? { landValuePerAcre: landPerAcre } : {}),
+      ...(appreciation !== null && appreciation !== undefined ? { appreciation5yr: appreciation } : {}),
     }
+    if (landShare !== undefined) landMatchCount++
+    if (landPerAcre !== undefined) acreMatchCount++
+    if (appreciation !== null && appreciation !== undefined) appreciationCount++
   }
+  console.log(`  Matched AEI land share for ${landMatchCount}/${allZips.size} ZIPs`)
+  console.log(`  Matched AEI $/acre for ${acreMatchCount}/${allZips.size} ZIPs`)
+  console.log(`  Calculated 5-year appreciation for ${appreciationCount}/${allZips.size} ZIPs`)
 
   const housingData = {
     _meta: {
       zhviDate,
       zoriDate,
+      aeiYear,
       fetchedAt: new Date().toISOString().split('T')[0],
     },
     ...zipData,
@@ -220,7 +338,7 @@ async function main() {
   console.log(`  File size: ~${housingSize} MB`)
   console.log(`  ZIPs with state info: ${Object.values(zipData).filter(d => d.state).length}`)
 
-  // --- 4. Fetch Census Gazetteer ZCTA centroids (ZIP archive) ---
+  // --- 5. Fetch Census Gazetteer ZCTA centroids (ZIP archive) ---
   let centroidFeatures: ReturnType<typeof parseGazetteerText> = []
 
   for (const url of [GAZETTEER_URL, GAZETTEER_FALLBACK]) {
@@ -257,7 +375,7 @@ async function main() {
     console.log(`  File size: ~${centroidSize} MB`)
   }
 
-  // --- 5. Fetch US state boundaries (TopoJSON → convert to GeoJSON) ---
+  // --- 6. Fetch US state boundaries (TopoJSON → convert to GeoJSON) ---
   try {
     const topoData = await fetchJson(US_STATES_URL, 'US state boundaries (TopoJSON)') as {
       type: string

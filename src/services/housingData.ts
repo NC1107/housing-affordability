@@ -2,6 +2,7 @@ import pointsWithinPolygon from '@turf/points-within-polygon'
 import { featureCollection, point } from '@turf/helpers'
 import type { HousingDataEntry, HousingStats, DataMeta, AffordabilityInputs, StateAffordability } from '../types'
 import { getAffordabilityTier } from './mortgage'
+import { STATE_ABBREVIATIONS } from '../utils/stateNames'
 
 interface ZipRecord {
   name?: string
@@ -47,42 +48,45 @@ export async function loadZctaBoundaries(stateCode: string): Promise<GeoJSON.Fea
   }
 }
 
-let housingDataCache: RawHousingData | null = null
 let metaCache: DataMeta | null = null
-let centroidCache: ZipCentroid | null = null
+let housingDataPromise: Promise<RawHousingData> | null = null
+let centroidPromise: Promise<ZipCentroid> | null = null
 
 async function loadHousingData(): Promise<RawHousingData> {
-  if (housingDataCache) return housingDataCache
-  try {
-    const res = await fetch(`${import.meta.env.BASE_URL}data/housing-data.json`)
-    if (!res.ok) throw new Error('Housing data not found')
-    const raw = await res.json()
-    // Extract _meta before caching zip data
-    if (raw._meta) {
-      metaCache = raw._meta as DataMeta
-      delete raw._meta
-    }
-    housingDataCache = raw
-    return housingDataCache!
-  } catch {
-    console.warn('Housing data not available. Run: npm run fetch-data')
-    housingDataCache = {}
-    return housingDataCache
+  if (!housingDataPromise) {
+    housingDataPromise = (async () => {
+      try {
+        const res = await fetch(`${import.meta.env.BASE_URL}data/housing-data.json`)
+        if (!res.ok) throw new Error('Housing data not found')
+        const raw = await res.json()
+        if (raw._meta) {
+          metaCache = raw._meta as DataMeta
+          delete raw._meta
+        }
+        return raw as RawHousingData
+      } catch {
+        console.warn('Housing data not available. Run: npm run fetch-data')
+        return {} as RawHousingData
+      }
+    })()
   }
+  return housingDataPromise
 }
 
 async function loadCentroids(): Promise<ZipCentroid> {
-  if (centroidCache) return centroidCache
-  try {
-    const res = await fetch(`${import.meta.env.BASE_URL}data/zip-centroids.json`)
-    if (!res.ok) throw new Error('Centroid data not found')
-    centroidCache = await res.json()
-    return centroidCache!
-  } catch {
-    console.warn('ZIP centroid data not available. Run: npm run fetch-data')
-    centroidCache = { type: 'FeatureCollection', features: [] }
-    return centroidCache
+  if (!centroidPromise) {
+    centroidPromise = (async () => {
+      try {
+        const res = await fetch(`${import.meta.env.BASE_URL}data/zip-centroids.json`)
+        if (!res.ok) throw new Error('Centroid data not found')
+        return await res.json() as ZipCentroid
+      } catch {
+        console.warn('ZIP centroid data not available. Run: npm run fetch-data')
+        return { type: 'FeatureCollection' as const, features: [] }
+      }
+    })()
   }
+  return centroidPromise
 }
 
 function median(values: number[]): number | null {
@@ -92,7 +96,7 @@ function median(values: number[]): number | null {
   return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2
 }
 
-function buildStats(entries: HousingDataEntry[]): HousingStats {
+export function buildStats(entries: HousingDataEntry[]): HousingStats {
   const homeValues = entries.map((e) => e.medianHomeValue).filter((v): v is number => v !== null)
   const rents = entries.map((e) => e.medianRent).filter((v): v is number => v !== null)
 
@@ -100,29 +104,17 @@ function buildStats(entries: HousingDataEntry[]): HousingStats {
     zipCount: entries.length,
     medianHomeValue: median(homeValues),
     medianRent: median(rents),
-    minHomeValue: homeValues.length ? Math.min(...homeValues) : null,
-    maxHomeValue: homeValues.length ? Math.max(...homeValues) : null,
-    minRent: rents.length ? Math.min(...rents) : null,
-    maxRent: rents.length ? Math.max(...rents) : null,
+    minHomeValue: homeValues.length ? homeValues.reduce((a, b) => Math.min(a, b), Infinity) : null,
+    maxHomeValue: homeValues.length ? homeValues.reduce((a, b) => Math.max(a, b), -Infinity) : null,
+    minRent: rents.length ? rents.reduce((a, b) => Math.min(a, b), Infinity) : null,
+    maxRent: rents.length ? rents.reduce((a, b) => Math.max(a, b), -Infinity) : null,
     entries,
     meta: metaCache ?? undefined,
   }
 }
 
-// State abbreviation → full name
-const STATE_NAMES: Record<string, string> = {
-  AL: 'Alabama', AK: 'Alaska', AZ: 'Arizona', AR: 'Arkansas', CA: 'California',
-  CO: 'Colorado', CT: 'Connecticut', DE: 'Delaware', DC: 'District of Columbia',
-  FL: 'Florida', GA: 'Georgia', HI: 'Hawaii', ID: 'Idaho', IL: 'Illinois',
-  IN: 'Indiana', IA: 'Iowa', KS: 'Kansas', KY: 'Kentucky', LA: 'Louisiana',
-  ME: 'Maine', MD: 'Maryland', MA: 'Massachusetts', MI: 'Michigan', MN: 'Minnesota',
-  MS: 'Mississippi', MO: 'Missouri', MT: 'Montana', NE: 'Nebraska', NV: 'Nevada',
-  NH: 'New Hampshire', NJ: 'New Jersey', NM: 'New Mexico', NY: 'New York',
-  NC: 'North Carolina', ND: 'North Dakota', OH: 'Ohio', OK: 'Oklahoma', OR: 'Oregon',
-  PA: 'Pennsylvania', RI: 'Rhode Island', SC: 'South Carolina', SD: 'South Dakota',
-  TN: 'Tennessee', TX: 'Texas', UT: 'Utah', VT: 'Vermont', VA: 'Virginia',
-  WA: 'Washington', WV: 'West Virginia', WI: 'Wisconsin', WY: 'Wyoming', PR: 'Puerto Rico',
-}
+// Use shared state names from utils
+const STATE_NAMES = STATE_ABBREVIATIONS
 
 export async function getHousingForIsochrone(
   isochroneGeoJson: GeoJSON.FeatureCollection

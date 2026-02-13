@@ -1,6 +1,5 @@
-import { useState, useCallback, useRef, useMemo, useEffect } from 'react'
+import { useState, useCallback, useRef, useReducer, useMemo, useEffect } from 'react'
 import MapView from './Map'
-import type { ZipMarker } from './Map'
 import SearchBar from './SearchBar'
 import Controls from './Controls'
 import HousingSummary from './HousingSummary'
@@ -9,27 +8,29 @@ import AffordabilityForm from './AffordabilityForm'
 import CollapsibleSection from './CollapsibleSection'
 import ZipInfoBox from './ZipInfoBox'
 import TableModal from './TableModal'
-import POIFilter from './POIFilter'
 import { isApiKeyConfigured, geocodeAddress } from '../services/geoapify'
 import { fetchIsochroneWithCache } from '../services/isochrone'
 import { getHousingForIsochrone, getAffordableNationwide, getAffordableForIsochrone, loadZctaBoundaries } from '../services/housingData'
 import { getAffordabilityTier } from '../services/mortgage'
 import { expandStateAbbreviation } from '../utils/stateNames'
-import type { GeocodedLocation, TravelMode, HousingStats, AffordabilityInputs, StateAffordability, HousingDataEntry } from '../types'
+import { appReducer, initialAppState } from '../hooks/useAppReducer'
+import type { GeocodedLocation, TravelMode, AffordabilityInputs, ZipMarker } from '../types'
 
 export default function App() {
-  const [location, setLocation] = useState<GeocodedLocation | null>(null)
-  const [isochrone, setIsochrone] = useState<GeoJSON.FeatureCollection | null>(null)
-  const [mode, setMode] = useState<TravelMode>('drive')
-  const [minutes, setMinutes] = useState(30)
-  const [loading, setLoading] = useState(false)
-  const [housingStats, setHousingStats] = useState<HousingStats | null>(null)
-  const [housingLoading, setHousingLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  // const [status, setStatus] = useState<string | null>(null)  // Status not currently displayed
-  const setStatus = (_: string | null) => {}  // No-op function for status updates
+  const [state, dispatch] = useReducer(appReducer, initialAppState)
+  const {
+    searchMode, location, isochrone, mode, minutes,
+    loading, housingLoading, zctaLoading,
+    housingStats, stateGeoJson, stateData, selectedState,
+    allNationwideEntries, zipMarkers, zctaGeoJson,
+    error, zctaError,
+    highlightedZip, focusZip, selectedZipInfo,
+    showUnaffordable, debugMode,
+  } = state
+
+  // Independent UI state (not part of core data flow)
   const [affordability, setAffordability] = useState<AffordabilityInputs>({
-    annualIncome: 47000,  // Median income for single American (Census Bureau 2024)
+    annualIncome: 47000,
     downPaymentPct: 20,
     interestRate: 6.5,
     loanTermYears: 30,
@@ -44,26 +45,10 @@ export default function App() {
     manualMaxPrice: null,
     useManualMaxPrice: false,
   })
-  const [focusZip, setFocusZip] = useState<{ lat: number; lon: number; zip: string; _t: number } | null>(null)
-  const [highlightedZip, setHighlightedZip] = useState<string | null>(null)
   const [maxPrice, setMaxPrice] = useState<number | null>(null)
-  const [apiWarningDismissed, setApiWarningDismissed] = useState(false)
-
-  // Income search state
-  const [stateGeoJson, setStateGeoJson] = useState<GeoJSON.FeatureCollection | null>(null)
-  const [stateData, setStateData] = useState<StateAffordability[]>([])
-  const [selectedState, setSelectedState] = useState<string | null>(null)
-  const [allNationwideEntries, setAllNationwideEntries] = useState<HousingDataEntry[]>([])
-  const [zipMarkers, setZipMarkers] = useState<ZipMarker[]>([])
-  const [zctaGeoJson, setZctaGeoJson] = useState<GeoJSON.FeatureCollection | null>(null)
-  const [zctaLoading, setZctaLoading] = useState(false)
-  const [zctaError, setZctaError] = useState<string | null>(null)
-  const [showUnaffordable, setShowUnaffordable] = useState(true)
-  const [searchMode, setSearchMode] = useState<'address' | 'income'>('address')
   const [sidebarOpen, setSidebarOpen] = useState(false)
-  const [selectedZipInfo, setSelectedZipInfo] = useState<HousingDataEntry | null>(null)
+  const [apiWarningDismissed, setApiWarningDismissed] = useState(false)
   const [isTableModalOpen, setIsTableModalOpen] = useState(false)
-  const [debugMode, setDebugMode] = useState(false)
 
   const locationRef = useRef<GeocodedLocation | null>(null)
   const apiReady = isApiKeyConfigured()
@@ -73,265 +58,207 @@ export default function App() {
 
   const updateIsochrone = useCallback(
     async (loc: GeocodedLocation, travelMode: TravelMode, travelMinutes: number) => {
-      setLoading(true)
-      setError(null)
-      setStatus('Fetching commute zone...')
+      dispatch({ type: 'PATCH', patch: { loading: true, error: null } })
       try {
         const geojson = await fetchIsochroneWithCache(loc.lat, loc.lon, travelMode, travelMinutes)
-        setIsochrone(geojson)
-        setStatus(`${travelMinutes}-min ${travelMode === 'drive' ? 'driving' : 'transit'} zone`)
+        dispatch({ type: 'PATCH', patch: { isochrone: geojson } })
 
-        // Fetch housing data for the isochrone
-        setHousingLoading(true)
+        dispatch({ type: 'PATCH', patch: { housingLoading: true } })
         try {
-          // If income is available, calculate affordability tiers for ZIP markers
           if (affordability.annualIncome) {
             const { stats, zipMarkers: markers } = await getAffordableForIsochrone(geojson, affordability)
-            setHousingStats(stats)
-            setZipMarkers(markers)
+            dispatch({ type: 'PATCH', patch: { housingStats: stats, zipMarkers: markers } })
           } else {
-            // No income - just show ZIPs without affordability
             const stats = await getHousingForIsochrone(geojson)
-            setHousingStats(stats)
-            setZipMarkers([])
+            dispatch({ type: 'PATCH', patch: { housingStats: stats, zipMarkers: [] } })
           }
         } catch {
-          console.warn('Could not load housing data')
-          setHousingStats(null)
-          setZipMarkers([])
+          dispatch({ type: 'PATCH', patch: { housingStats: null, zipMarkers: [] } })
         } finally {
-          setHousingLoading(false)
+          dispatch({ type: 'PATCH', patch: { housingLoading: false } })
         }
       } catch (err) {
-        setError(err instanceof Error ? err.message : 'Isochrone request failed')
-        setIsochrone(null)
-        setHousingStats(null)
+        dispatch({
+          type: 'PATCH',
+          patch: {
+            error: err instanceof Error ? err.message : 'Isochrone request failed',
+            isochrone: null,
+            housingStats: null,
+          },
+        })
       } finally {
-        setLoading(false)
+        dispatch({ type: 'PATCH', patch: { loading: false } })
       }
     },
     [affordability]
   )
 
-  async function handleSearch(address: string) {
-    // Clear income search state
-    setSearchMode('address')
-    setStateData([])
-    setSelectedState(null)
-    setAllNationwideEntries([])
-    setZipMarkers([])
-    setHighlightedZip(null)
-    setFocusZip(null)
-    setSidebarOpen(false) // Close sidebar on mobile after search
+  const handleSearch = useCallback(
+    async (address: string) => {
+      dispatch({ type: 'START_ADDRESS_SEARCH' })
+      setSidebarOpen(false)
+      try {
+        const loc = await geocodeAddress(address)
+        dispatch({ type: 'PATCH', patch: { location: loc } })
+        locationRef.current = loc
+        await updateIsochrone(loc, mode, minutes)
+      } catch (err) {
+        dispatch({
+          type: 'PATCH',
+          patch: {
+            error: err instanceof Error ? err.message : 'Search failed',
+            loading: false,
+          },
+        })
+      }
+    },
+    [updateIsochrone, mode, minutes]
+  )
 
-    setLoading(true)
-    setError(null)
-    setStatus('Geocoding address...')
-    try {
-      const loc = await geocodeAddress(address)
-      setLocation(loc)
-      locationRef.current = loc
-      await updateIsochrone(loc, mode, minutes)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Search failed')
-      setLoading(false)
-    }
-  }
-
-  async function handleIncomeSearch() {
-    setSearchMode('income')
-    setSidebarOpen(false) // Close sidebar on mobile after search
-    setLoading(true)
-    setError(null)
-    setStatus('Finding affordable areas nationwide...')
-    // Clear address mode state
-    setLocation(null)
-    setIsochrone(null)
+  const handleIncomeSearch = useCallback(async () => {
+    dispatch({ type: 'START_INCOME_SEARCH' })
+    setSidebarOpen(false)
     locationRef.current = null
-    setSelectedState(null)
-    setZipMarkers([])
-    setHighlightedZip(null)
-    setFocusZip(null)
 
     try {
-      // Load US states GeoJSON if not cached
-      if (!stateGeoJson) {
+      let geoJson = stateGeoJson
+      if (!geoJson) {
         const res = await fetch(`${import.meta.env.BASE_URL}data/us-states.json`)
-        if (res.ok) {
-          setStateGeoJson(await res.json())
-        }
+        if (res.ok) geoJson = await res.json()
       }
 
       const result = await getAffordableNationwide(affordability)
-      setStateData(result.states)
-      setAllNationwideEntries(result.allEntries)
-      setHousingStats(result.stats)
-
-      const statesWithAffordable = result.states.filter(s => s.pctAffordable > 0).length
-      setStatus(`${result.allEntries.length.toLocaleString()} affordable ZIPs across ${statesWithAffordable} states`)
+      dispatch({
+        type: 'INCOME_SEARCH_DONE',
+        stateData: result.states,
+        allEntries: result.allEntries,
+        stats: result.stats,
+        stateGeoJson: geoJson ?? undefined,
+      })
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Income search failed')
-      setHousingStats(null)
-    } finally {
-      setLoading(false)
+      dispatch({
+        type: 'PATCH',
+        patch: {
+          error: err instanceof Error ? err.message : 'Income search failed',
+          housingStats: null,
+          loading: false,
+        },
+      })
     }
-  }
+  }, [affordability, stateGeoJson])
 
-  async function handleStateClick(stateCode: string) {
-    setSelectedState(stateCode)
-    setZctaError(null)
+  const handleStateClick = useCallback(
+    async (stateCode: string) => {
+      dispatch({ type: 'STATE_CLICK', stateCode, affordability })
 
-    // Load ZCTA boundaries for this state
-    setZctaLoading(true)
-    try {
-      const geojson = await loadZctaBoundaries(stateCode)
-      setZctaGeoJson(geojson)
-      if (!geojson) {
-        setZctaError(`ZIP boundary data not available for ${stateCode}. Showing ZIP dots instead.`)
+      try {
+        const geojson = await loadZctaBoundaries(stateCode)
+        dispatch({
+          type: 'PATCH',
+          patch: {
+            zctaGeoJson: geojson,
+            zctaLoading: false,
+            zctaError: geojson
+              ? null
+              : `ZIP boundary data not available for ${stateCode}. Showing ZIP dots instead.`,
+          },
+        })
+      } catch {
+        dispatch({
+          type: 'PATCH',
+          patch: {
+            zctaGeoJson: null,
+            zctaLoading: false,
+            zctaError: `Failed to load ZIP boundaries for ${stateCode}. Showing ZIP dots instead.`,
+          },
+        })
       }
-    } catch (err) {
-      setZctaError(`Failed to load ZIP boundaries for ${stateCode}. Showing ZIP dots instead.`)
-      setZctaGeoJson(null)
-    } finally {
-      setZctaLoading(false)
-    }
+    },
+    [affordability]
+  )
 
-    // Filter entries to just this state
-    const stateEntries = allNationwideEntries.filter(e => e.state === stateCode)
+  const handleBackToStates = useCallback(() => {
+    dispatch({ type: 'BACK_TO_STATES' })
+  }, [])
 
-    // Build ZIP markers for the map - include all affordability tiers
-    const markers: ZipMarker[] = stateEntries.map(e => {
-      const tier = getAffordabilityTier(e.medianHomeValue, affordability)
-      return {
-        lat: e.lat,
-        lon: e.lon,
-        zip: e.zip,
-        tier: tier === 'affordable' ? 'affordable' : tier === 'stretch' ? 'stretch' : 'unaffordable',
+  const handleClear = useCallback(() => {
+    dispatch({ type: 'CLEAR_ALL' })
+    locationRef.current = null
+  }, [])
+
+  const handleZipSelect = useCallback((lat: number, lon: number, zip: string) => {
+    dispatch({ type: 'SELECT_ZIP', lat, lon, zip, _t: Date.now() })
+    setSidebarOpen(false)
+  }, [])
+
+  const handleZipMarkerClick = useCallback((zip: string) => {
+    dispatch({ type: 'CLICK_ZIP_MARKER', zip })
+  }, [])
+
+  const handleModeChange = useCallback(
+    (newMode: TravelMode) => {
+      dispatch({ type: 'PATCH', patch: { mode: newMode } })
+      if (locationRef.current) {
+        updateIsochrone(locationRef.current, newMode, minutes)
       }
-    })
-    setZipMarkers(markers)
+    },
+    [updateIsochrone, minutes]
+  )
 
-    // Update housing stats to show this state's data
-    const homeValues = stateEntries.map(e => e.medianHomeValue).filter((v): v is number => v !== null)
-    const rents = stateEntries.map(e => e.medianRent).filter((v): v is number => v !== null)
-    const sorted = [...homeValues].sort((a, b) => a - b)
-    const mid = Math.floor(sorted.length / 2)
-    const medianHV = sorted.length % 2 ? sorted[mid] : sorted.length ? (sorted[mid - 1] + sorted[mid]) / 2 : null
-    const sortedRents = [...rents].sort((a, b) => a - b)
-    const midR = Math.floor(sortedRents.length / 2)
-    const medianR = sortedRents.length % 2 ? sortedRents[midR] : sortedRents.length ? (sortedRents[midR - 1] + sortedRents[midR]) / 2 : null
+  const debounceRef = useRef<ReturnType<typeof setTimeout>>()
+  const handleMinutesChange = useCallback(
+    (newMinutes: number) => {
+      dispatch({ type: 'PATCH', patch: { minutes: newMinutes } })
+      clearTimeout(debounceRef.current)
+      debounceRef.current = setTimeout(() => {
+        if (locationRef.current) {
+          updateIsochrone(locationRef.current, mode, newMinutes)
+        }
+      }, 400)
+    },
+    [updateIsochrone, mode]
+  )
 
-    setHousingStats({
-      zipCount: stateEntries.length,
-      medianHomeValue: medianHV,
-      medianRent: medianR,
-      minHomeValue: homeValues.length ? Math.min(...homeValues) : null,
-      maxHomeValue: homeValues.length ? Math.max(...homeValues) : null,
-      minRent: rents.length ? Math.min(...rents) : null,
-      maxRent: rents.length ? Math.max(...rents) : null,
-      entries: stateEntries,
-    })
+  const handleClearDebugZips = useCallback(() => {
+    dispatch({ type: 'CLEAR_DEBUG' })
+  }, [])
 
-    const stateInfo = stateData.find(s => s.state === stateCode)
-    setStatus(`${stateInfo?.stateName || stateCode}: ${stateEntries.length} affordable ZIPs`)
-  }
-
-  function handleBackToStates() {
-    setSelectedState(null)
-    setZipMarkers([])
-    setZctaGeoJson(null)
-    setZctaError(null)
-
-    // Restore nationwide stats
-    const homeValues = allNationwideEntries.map(e => e.medianHomeValue).filter((v): v is number => v !== null)
-    const rents = allNationwideEntries.map(e => e.medianRent).filter((v): v is number => v !== null)
-    const sorted = [...homeValues].sort((a, b) => a - b)
-    const mid = Math.floor(sorted.length / 2)
-    const medianHV = sorted.length % 2 ? sorted[mid] : sorted.length ? (sorted[mid - 1] + sorted[mid]) / 2 : null
-    const sortedRents = [...rents].sort((a, b) => a - b)
-    const midR = Math.floor(sortedRents.length / 2)
-    const medianR = sortedRents.length % 2 ? sortedRents[midR] : sortedRents.length ? (sortedRents[midR - 1] + sortedRents[midR]) / 2 : null
-
-    setHousingStats({
-      zipCount: allNationwideEntries.length,
-      medianHomeValue: medianHV,
-      medianRent: medianR,
-      minHomeValue: homeValues.length ? Math.min(...homeValues) : null,
-      maxHomeValue: homeValues.length ? Math.max(...homeValues) : null,
-      minRent: rents.length ? Math.min(...rents) : null,
-      maxRent: rents.length ? Math.max(...rents) : null,
-      entries: allNationwideEntries,
-    })
-
-    const statesWithAffordable = stateData.filter(s => s.pctAffordable > 0).length
-    setStatus(`${allNationwideEntries.length.toLocaleString()} affordable ZIPs across ${statesWithAffordable} states`)
-  }
-
-  function handleClearDebugZips() {
-    // Clear debug ZIP boundaries and reset debug mode
-    setZctaGeoJson(null)
-    setDebugMode(false)
-
-    // If we're in nationwide income view, clear all markers
-    // If we're in a selected state view, keep the state's markers
-    if (searchMode === 'income' && !selectedState) {
-      setZipMarkers([])
-    }
-  }
-
-  // Load all 50 states' ZIP boundaries for debug mode
-  async function handleLoadAllStates() {
+  const handleLoadAllStates = useCallback(async () => {
     const ALL_STATE_CODES = [
       'AL', 'AK', 'AZ', 'AR', 'CA', 'CO', 'CT', 'DE', 'FL', 'GA',
       'HI', 'ID', 'IL', 'IN', 'IA', 'KS', 'KY', 'LA', 'ME', 'MD',
       'MA', 'MI', 'MN', 'MS', 'MO', 'MT', 'NE', 'NV', 'NH', 'NJ',
       'NM', 'NY', 'NC', 'ND', 'OH', 'OK', 'OR', 'PA', 'RI', 'SC',
-      'SD', 'TN', 'TX', 'UT', 'VT', 'VA', 'WA', 'WV', 'WI', 'WY', 'DC'
+      'SD', 'TN', 'TX', 'UT', 'VT', 'VA', 'WA', 'WV', 'WI', 'WY', 'DC',
     ]
 
-    setZctaLoading(true)
-    setZctaError(null)
-    setStatus('Loading all US ZIP boundaries... (this may take a moment)')
+    dispatch({ type: 'PATCH', patch: { zctaLoading: true, zctaError: null } })
 
     try {
       const allFeatures: GeoJSON.Feature[] = []
-      let loadedCount = 0
-
-      // Load states in batches of 15 for faster loading
       const BATCH_SIZE = 15
       for (let i = 0; i < ALL_STATE_CODES.length; i += BATCH_SIZE) {
         const batch = ALL_STATE_CODES.slice(i, i + BATCH_SIZE)
-        const promises = batch.map(async (stateCode) => {
-          try {
-            const geojson = await loadZctaBoundaries(stateCode)
-            if (geojson && geojson.features) {
-              loadedCount++
-              setStatus(`Loading ZIP boundaries... (${loadedCount}/${ALL_STATE_CODES.length} states)`)
-              return geojson.features
+        const batchResults = await Promise.all(
+          batch.map(async (code) => {
+            try {
+              const geojson = await loadZctaBoundaries(code)
+              return geojson?.features ?? []
+            } catch {
+              return []
             }
-            return []
-          } catch {
-            console.warn(`Failed to load ${stateCode}`)
-            return []
-          }
-        })
-
-        const batchResults = await Promise.all(promises)
-        batchResults.forEach(features => {
-          allFeatures.push(...features)
-        })
+          })
+        )
+        batchResults.forEach(features => allFeatures.push(...features))
       }
 
-      // Combine all features into one GeoJSON
       const combinedGeoJson: GeoJSON.FeatureCollection = {
         type: 'FeatureCollection',
         features: allFeatures,
       }
 
-      setZctaGeoJson(combinedGeoJson)
-      setDebugMode(true)
+      dispatch({ type: 'PATCH', patch: { zctaGeoJson: combinedGeoJson, debugMode: true } })
 
-      // If we're in income mode and have nationwide entries, calculate affordability tiers
       if (searchMode === 'income' && allNationwideEntries.length > 0 && affordability.annualIncome) {
         const markers: ZipMarker[] = allNationwideEntries.map(e => {
           const tier = getAffordabilityTier(e.medianHomeValue, affordability)
@@ -342,113 +269,35 @@ export default function App() {
             tier: tier === 'affordable' ? 'affordable' : tier === 'stretch' ? 'stretch' : 'unaffordable',
           }
         })
-        setZipMarkers(markers)
-        setStatus(`Loaded ${allFeatures.length.toLocaleString()} ZIP boundaries with affordability colors`)
-      } else {
-        setStatus(`Loaded ${allFeatures.length.toLocaleString()} ZIP boundaries from ${loadedCount} states`)
+        dispatch({ type: 'PATCH', patch: { zipMarkers: markers } })
       }
-    } catch (err) {
-      setZctaError('Failed to load all ZIP boundaries')
-      console.error('Error loading all states:', err)
+    } catch {
+      dispatch({ type: 'PATCH', patch: { zctaError: 'Failed to load all ZIP boundaries' } })
     } finally {
-      setZctaLoading(false)
+      dispatch({ type: 'PATCH', patch: { zctaLoading: false } })
     }
-  }
-
-  function handleClear() {
-    setLocation(null)
-    setIsochrone(null)
-    setHousingStats(null)
-    setStatus(null)
-    setError(null)
-    setFocusZip(null)
-    setHighlightedZip(null)
-    setStateData([])
-    setSelectedState(null)
-    setAllNationwideEntries([])
-    setZipMarkers([])
-    setZctaGeoJson(null)
-    setZctaError(null)
-    locationRef.current = null
-  }
-
-  function handleZipSelect(lat: number, lon: number, zip: string) {
-    setFocusZip({ lat, lon, zip, _t: Date.now() })
-    setHighlightedZip(zip)
-    setSidebarOpen(false) // Close sidebar on mobile after selection
-
-    // Find full entry for info box
-    if (housingStats?.entries) {
-      const entry = housingStats.entries.find(e => e.zip === zip)
-      setSelectedZipInfo(entry ?? null)
-    }
-  }
-
-  function handleZipMarkerClick(zip: string) {
-    setHighlightedZip(zip)
-
-    // Find full entry for info box
-    if (housingStats?.entries) {
-      const entry = housingStats.entries.find(e => e.zip === zip)
-      setSelectedZipInfo(entry ?? null)
-    }
-  }
-
-  function handleModeChange(newMode: TravelMode) {
-    setMode(newMode)
-    if (locationRef.current) {
-      updateIsochrone(locationRef.current, newMode, minutes)
-    }
-  }
-
-  // Debounce slider changes
-  const debounceRef = useRef<ReturnType<typeof setTimeout>>()
-  function handleMinutesChange(newMinutes: number) {
-    setMinutes(newMinutes)
-    clearTimeout(debounceRef.current)
-    debounceRef.current = setTimeout(() => {
-      if (locationRef.current) {
-        updateIsochrone(locationRef.current, mode, newMinutes)
-      }
-    }, 400)
-  }
+  }, [searchMode, allNationwideEntries, affordability])
 
   // Re-apply affordability tiers when income changes in address mode
   useEffect(() => {
-    // Only run in address mode when isochrone and housing stats exist
     if (searchMode !== 'address' || !isochrone || !housingStats?.entries.length) return
 
-    // If no income, clear ZIP markers (no colors)
     if (!affordability.annualIncome || affordability.annualIncome <= 0) {
-      setZipMarkers([])
+      dispatch({ type: 'PATCH', patch: { zipMarkers: [] } })
       return
     }
 
-    // Recalculate tiers for existing ZIP entries without re-fetching
-    const updatedMarkers = housingStats.entries
-      .map((entry) => {
+    const updatedMarkers: ZipMarker[] = housingStats.entries
+      .map(entry => {
         const tier = getAffordabilityTier(entry.medianHomeValue, affordability)
-        return {
-          zip: entry.zip,
-          lat: entry.lat,
-          lon: entry.lon,
-          tier,
-          medianHomeValue: entry.medianHomeValue,
-          medianRent: entry.medianRent,
-        }
+        return { zip: entry.zip, lat: entry.lat, lon: entry.lon, tier }
       })
-      .filter((marker): marker is {
-        zip: string
-        lat: number
-        lon: number
-        tier: 'affordable' | 'stretch' | 'unaffordable'
-        medianHomeValue: number | null
-        medianRent: number | null
-      } => marker.tier !== 'unknown')
+      .filter(
+        (m): m is ZipMarker => m.tier !== 'unknown'
+      )
 
-    setZipMarkers(updatedMarkers)
+    dispatch({ type: 'PATCH', patch: { zipMarkers: updatedMarkers } })
   }, [
-    // Only depend on fields that affect affordability tier calculations
     affordability.annualIncome,
     affordability.downPaymentPct,
     affordability.interestRate,
@@ -462,28 +311,24 @@ export default function App() {
     affordability.includeSpending,
     affordability.monthlySpending,
     housingStats,
-    // Note: Don't depend on isochrone - it changes before housingStats updates, causing race condition
-    searchMode
+    // Note: Don't depend on isochrone - it changes before housingStats updates
+    searchMode,
   ])
 
   const selectedStateInfo = selectedState ? stateData.find(s => s.state === selectedState) : null
 
-  // Memoize filtered entries to avoid filtering on every render
   const filteredEntries = useMemo(() => {
     if (!housingStats) return []
-    // Inverted: when showUnaffordable is FALSE (unchecked), filter out unaffordable
     if (!showUnaffordable) {
       return housingStats.entries.filter(e => {
         const tier = getAffordabilityTier(e.medianHomeValue, affordability)
         return tier === 'affordable' || tier === 'stretch'
       })
     }
-    // When TRUE (checked), show all ZIPs including unaffordable
     return housingStats.entries
   }, [
     housingStats,
     showUnaffordable,
-    // Only depend on fields that affect affordability tier calculations
     affordability.annualIncome,
     affordability.downPaymentPct,
     affordability.interestRate,
@@ -498,19 +343,16 @@ export default function App() {
     affordability.monthlySpending,
   ])
 
-  // Memoize filtered zip markers
   const filteredZipMarkers = useMemo(() => {
-    // Inverted: when showUnaffordable is FALSE (unchecked), filter out unaffordable
     if (!showUnaffordable) {
       return zipMarkers.filter(m => m.tier !== 'unaffordable')
     }
-    // When TRUE (checked), show all markers including unaffordable
     return zipMarkers
   }, [zipMarkers, showUnaffordable])
 
   return (
     <div className="flex h-dvh md:h-screen bg-white relative overflow-hidden">
-      {/* Hamburger Menu Button (mobile only) - positioned top-right to avoid map controls */}
+      {/* Hamburger Menu Button (mobile only) */}
       <button
         onClick={() => setSidebarOpen(!sidebarOpen)}
         className="fixed top-4 right-4 z-[1300] md:hidden bg-white rounded-lg shadow-lg p-2 border border-gray-200"
@@ -612,13 +454,7 @@ export default function App() {
             <AffordabilityForm inputs={affordability} onChange={setAffordability} onMaxPriceChange={setMaxPrice} />
           </CollapsibleSection>
 
-          {/* Points of Interest */}
-          <hr className="border-gray-200" />
-          <CollapsibleSection title="Points of Interest" defaultExpanded={false}>
-            <POIFilter />
-          </CollapsibleSection>
-
-          {/* Status / Error */}
+          {/* Error */}
           {error && (
             <div
               role="alert"
@@ -692,14 +528,14 @@ export default function App() {
                   stateName={selectedState && selectedStateInfo ? selectedStateInfo.stateName : undefined}
                 />
 
-                {/* Show unaffordable toggle - moved inside Housing Data section */}
+                {/* Show unaffordable toggle */}
                 {((searchMode === 'income' && selectedState) || (searchMode === 'address' && zipMarkers.length > 0)) && (
                   <div className="flex items-center justify-between mt-3 mb-3 text-xs">
                     <label className="flex items-center gap-2 cursor-pointer">
                       <input
                         type="checkbox"
                         checked={showUnaffordable}
-                        onChange={(e) => setShowUnaffordable(e.target.checked)}
+                        onChange={(e) => dispatch({ type: 'PATCH', patch: { showUnaffordable: e.target.checked } })}
                         className="rounded border-gray-300"
                       />
                       <span className="text-gray-700">Show unaffordable ZIPs</span>
@@ -773,7 +609,7 @@ export default function App() {
         <ZipInfoBox
           entry={selectedZipInfo}
           affordability={affordability}
-          onClose={() => setSelectedZipInfo(null)}
+          onClose={() => dispatch({ type: 'PATCH', patch: { selectedZipInfo: null } })}
         />
       </div>
 

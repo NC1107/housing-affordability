@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useMemo } from 'react'
 import type { HousingDataEntry, AffordabilityInputs, AffordabilityTier } from '../types'
 import { getAffordabilityTier } from '../services/mortgage'
+import { formatCurrency as _formatCurrency } from '../utils/format'
 
 interface HousingTableProps {
   entries: HousingDataEntry[]
@@ -19,16 +20,8 @@ const tierBgClass: Record<AffordabilityTier, string> = {
 type SortKey = 'zip' | 'medianHomeValue' | 'medianRent' | 'landSharePct' | 'landValuePerAcre'
 type SortDir = 'asc' | 'desc'
 
-// Cache currency formatter to avoid recreation on every call
-const currencyFormatter = new Intl.NumberFormat('en-US', {
-  style: 'currency',
-  currency: 'USD',
-  maximumFractionDigits: 0,
-})
-
 function formatCurrency(value: number | null): string {
-  if (value === null) return '—'
-  return currencyFormatter.format(value)
+  return _formatCurrency(value, '—')
 }
 
 export default function HousingTable({ entries, affordability, onZipClick, highlightedZip }: HousingTableProps) {

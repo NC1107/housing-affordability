@@ -55,6 +55,7 @@ export const STATE_ABBREVIATIONS: Record<string, string> = {
   'WI': 'Wisconsin',
   'WY': 'Wyoming',
   'DC': 'District of Columbia',
+  'PR': 'Puerto Rico',
 }
 
 /**

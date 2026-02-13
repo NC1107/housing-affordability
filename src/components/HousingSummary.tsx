@@ -1,5 +1,6 @@
 import type { HousingStats, AffordabilityInputs } from '../types'
 import { getAffordabilityTier, getEffectiveMaxPrice } from '../services/mortgage'
+import { formatCurrency } from '../utils/format'
 
 interface HousingSummaryProps {
   stats: HousingStats | null
@@ -7,15 +8,6 @@ interface HousingSummaryProps {
   affordability?: AffordabilityInputs
   context?: 'commute' | 'state' | 'nationwide' | 'none'
   stateName?: string
-}
-
-function formatCurrency(value: number | null): string {
-  if (value === null) return 'N/A'
-  return new Intl.NumberFormat('en-US', {
-    style: 'currency',
-    currency: 'USD',
-    maximumFractionDigits: 0,
-  }).format(value)
 }
 
 export default function HousingSummary({
@@ -159,7 +151,7 @@ export default function HousingSummary({
         ))}
       </div>
       {dataDate && (
-        <div className="text-[10px] text-gray-400 mt-2 opacity-60">
+        <div className="text-xs text-gray-500 mt-2">
           Data: Zillow ({new Date(dataDate + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}) {meta?.aeiYear && `· AEI (${meta.aeiYear})`}
         </div>
       )}

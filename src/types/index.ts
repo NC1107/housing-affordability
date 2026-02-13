@@ -80,3 +80,17 @@ export interface StateAffordability {
   medianHomeValue: number | null
   medianRent: number | null
 }
+
+export interface ZipMarker {
+  lat: number
+  lon: number
+  zip: string
+  tier: 'affordable' | 'stretch' | 'unaffordable'
+}
+
+export interface FocusZip {
+  lat: number
+  lon: number
+  zip: string
+  _t?: number
+}

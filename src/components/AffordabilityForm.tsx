@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import type { AffordabilityInputs } from '../types'
 import { calculateMaxHomePrice, calculateFullMonthlyPayment, getEffectiveMaxPrice } from '../services/mortgage'
+import { formatCurrency as _formatCurrency } from '../utils/format'
 
 interface AffordabilityFormProps {
   inputs: AffordabilityInputs
@@ -9,11 +10,7 @@ interface AffordabilityFormProps {
 }
 
 function formatCurrency(value: number): string {
-  return new Intl.NumberFormat('en-US', {
-    style: 'currency',
-    currency: 'USD',
-    maximumFractionDigits: 0,
-  }).format(value)
+  return _formatCurrency(value)
 }
 
 function parseIncomeInput(raw: string): number | null {

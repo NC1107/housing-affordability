@@ -8,6 +8,14 @@ export default defineConfig(({ mode }) => ({
   plugins: [react(), tailwindcss()],
   build: {
     outDir: 'dist',
-    sourcemap: false,  // Reduce bundle size
+    sourcemap: false,
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          leaflet: ['leaflet', 'react-leaflet'],
+          turf: ['@turf/helpers', '@turf/points-within-polygon'],
+        },
+      },
+    },
   },
 }))

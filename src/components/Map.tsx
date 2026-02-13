@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useMemo } from 'react'
 import { MapContainer, TileLayer, Marker, GeoJSON, CircleMarker, Tooltip, useMap } from 'react-leaflet'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
-import type { GeocodedLocation, StateAffordability, HousingDataEntry } from '../types'
+import type { GeocodedLocation, StateAffordability, HousingDataEntry, ZipMarker, FocusZip } from '../types'
 import MapLegend from './MapLegend'
 import { fetchMultipleZipBoundaries } from '../services/zipBoundaries'
 
@@ -137,7 +137,7 @@ function DebugButton({ enabled, onToggle, zipCount }: { enabled: boolean; onTogg
       border-radius:4px;
       font-weight:500;
     `
-    button.textContent = `${enabled ? '✓' : '○'} Show Loaded ZIPs${zipCount > 0 ? ` (${zipCount})` : ''}`
+    button.textContent = `${enabled ? '\u2713' : '\u25CB'} Show Loaded ZIPs${zipCount > 0 ? ` (${zipCount})` : ''}`
     button.addEventListener('click', onToggle)
     div.appendChild(button)
   }, [enabled, onToggle, zipCount])
@@ -185,13 +185,6 @@ function FlyToLocation({ location }: { location: GeocodedLocation | null }) {
   }, [location, map])
 
   return null
-}
-
-interface FocusZip {
-  lat: number
-  lon: number
-  zip: string
-  _t?: number
 }
 
 function FlyToZip({ focus, zctaGeoJson }: { focus: FocusZip | null; zctaGeoJson: GeoJSON.FeatureCollection | null }) {
@@ -348,9 +341,10 @@ function ChoroplethLayer({ stateGeoJson, stateData, onStateClick, selectedState 
     }
   }, [dataMap, onStateClick, selectedState])
 
+  // Change #6: Replace JSON.stringify key with simpler stable key
   const key = useMemo(
-    () => JSON.stringify(stateData.map(s => `${s.state}:${s.pctAffordable}`)) + (selectedState || ''),
-    [stateData, selectedState]
+    () => `choropleth-${stateData.length}-${selectedState || 'all'}`,
+    [stateData.length, selectedState]
   )
 
   return (
@@ -392,12 +386,15 @@ const ZctaLayer = React.memo(function ZctaLayer({ zctaGeoJson, zipMarkers, highl
     return m
   }, [housingEntries])
 
+  // Change #4: Store zip -> layer references for imperative style updates
+  const zipLayerMapRef = useRef<Map<string, L.Path>>(new Map())
+  const prevHighlightedZipRef = useRef<string | null>(null)
+
   const styleFunc = useMemo(() => {
     return (feature: GeoJSON.Feature | undefined) => {
       if (!feature) return {}
       const zip = (feature.properties as Record<string, string>)?.zip || ''
       const tier = tierMap.get(zip)
-      const isHighlighted = zip === highlightedZip
 
       // ZIPs without housing data - use lighter gray with dashed border
       if (!tier) {
@@ -417,24 +414,28 @@ const ZctaLayer = React.memo(function ZctaLayer({ zctaGeoJson, zipMarkers, highl
         tier === 'unaffordable' ? '#ef4444' : '#e5e7eb'
 
       const borderColor =
-        isHighlighted ? '#1d4ed8' :
         tier === 'affordable' ? '#16a34a' :
         tier === 'stretch' ? '#d97706' :
         tier === 'unaffordable' ? '#dc2626' : '#9ca3af'
 
       return {
         fillColor,
-        fillOpacity: isHighlighted ? 0.4 : 0.5,
+        fillOpacity: 0.5,
         color: borderColor,
-        weight: isHighlighted ? 3 : 1,
+        weight: 1,
       }
     }
-  }, [tierMap, highlightedZip])
+  }, [tierMap])
 
   const onEachFeature = useMemo(() => {
     return (feature: GeoJSON.Feature, layer: L.Layer) => {
       const zip = (feature.properties as Record<string, string>)?.zip || ''
       const tier = tierMap.get(zip)
+
+      // Store layer reference for imperative highlight updates
+      if (zip) {
+        zipLayerMapRef.current.set(zip, layer as L.Path)
+      }
 
       layer.bindTooltip(
         `<strong>${zip}</strong>${tier ? ` (${tier})` : ''}`,
@@ -452,18 +453,56 @@ const ZctaLayer = React.memo(function ZctaLayer({ zctaGeoJson, zipMarkers, highl
 
       layer.on('mouseout', (e) => {
         const target = e.target as L.Path
-        const isHighlighted = zip === highlightedZip
+        const isHighlighted = zip === prevHighlightedZipRef.current
         target.setStyle({
           weight: isHighlighted ? 3 : 1,
           fillOpacity: isHighlighted ? 0.4 : 0.5,
         })
       })
     }
-  }, [tierMap, entryMap, onZipClick, highlightedZip])
+  }, [tierMap, entryMap, onZipClick])
 
+  // Change #4: Imperatively update highlight styles when highlightedZip changes
+  useEffect(() => {
+    const prevZip = prevHighlightedZipRef.current
+    const newZip = highlightedZip
+
+    // Reset previous highlight
+    if (prevZip && prevZip !== newZip) {
+      const prevLayer = zipLayerMapRef.current.get(prevZip)
+      if (prevLayer) {
+        const tier = tierMap.get(prevZip)
+        const borderColor =
+          tier === 'affordable' ? '#16a34a' :
+          tier === 'stretch' ? '#d97706' :
+          tier === 'unaffordable' ? '#dc2626' : '#d1d5db'
+        prevLayer.setStyle({
+          color: borderColor,
+          weight: 1,
+          fillOpacity: tier ? 0.5 : 0.2,
+        })
+      }
+    }
+
+    // Apply new highlight
+    if (newZip) {
+      const newLayer = zipLayerMapRef.current.get(newZip)
+      if (newLayer) {
+        newLayer.setStyle({
+          color: '#1d4ed8',
+          weight: 3,
+          fillOpacity: 0.4,
+        })
+      }
+    }
+
+    prevHighlightedZipRef.current = newZip
+  }, [highlightedZip, tierMap])
+
+  // Change #3: Fix ZctaLayer key - include first/last ZIP for correctness, exclude highlightedZip
   const key = useMemo(
-    () => `zcta-${zipMarkers.length}-${highlightedZip || ''}`,
-    [zipMarkers.length, highlightedZip]
+    () => `zcta-${zipMarkers.length}-${zipMarkers[0]?.zip || ''}-${zipMarkers[zipMarkers.length - 1]?.zip || ''}`,
+    [zipMarkers]
   )
 
   return (
@@ -476,12 +515,8 @@ const ZctaLayer = React.memo(function ZctaLayer({ zctaGeoJson, zipMarkers, highl
   )
 })
 
-export interface ZipMarker {
-  lat: number
-  lon: number
-  zip: string
-  tier: 'affordable' | 'stretch' | 'unaffordable'
-}
+// ZipMarker type re-exported from types
+export type { ZipMarker } from '../types'
 
 interface MapViewProps {
   location: GeocodedLocation | null
@@ -502,7 +537,7 @@ interface MapViewProps {
   onClearDebugZips?: () => void
 }
 
-export default function MapView({
+function MapView({
   location,
   isochrone,
   focusZip,
@@ -523,6 +558,14 @@ export default function MapView({
   const [tileStyle, setTileStyle] = useState<TileStyleKey>('osm-bright')
   const [zipBoundaries, setZipBoundaries] = useState<Map<string, GeoJSON.Feature>>(new Map())
   const [loadingBoundaries, setLoadingBoundaries] = useState(false)
+
+  // Change #2: Ref-based counter for isochrone key instead of JSON.stringify
+  const isochroneKeyRef = useRef(0)
+  const prevIsochroneRef = useRef(isochrone)
+  if (isochrone !== prevIsochroneRef.current) {
+    isochroneKeyRef.current++
+    prevIsochroneRef.current = isochrone
+  }
 
   // Pre-compute entry lookup map for O(1) access instead of O(n) find()
   const entryMap = useMemo(() => {
@@ -555,17 +598,14 @@ export default function MapView({
     const missingZips = zipCodes.filter(zip => !zipBoundaries.has(zip))
 
     if (missingZips.length === 0) {
-      console.log('All ZIP boundaries already loaded')
       return
     }
 
-    console.log(`Fetching ${missingZips.length} ZIP boundaries:`, missingZips.slice(0, 5))
     setLoadingBoundaries(true)
 
-    fetchMultipleZipBoundaries(missingZips, (loaded, total) => {
-      console.log(`Loading ZIP boundaries: ${loaded}/${total}`)
+    fetchMultipleZipBoundaries(missingZips, () => {
+      // Progress callback - boundary loading in progress
     }).then(boundaries => {
-      console.log(`Successfully loaded ${boundaries.size} boundaries`)
       setZipBoundaries(prevBoundaries => {
         const newMap = new Map(prevBoundaries)
         boundaries.forEach((boundary, zip) => {
@@ -574,8 +614,7 @@ export default function MapView({
         return newMap
       })
       setLoadingBoundaries(false)
-    }).catch(error => {
-      console.error('Error fetching ZIP boundaries:', error)
+    }).catch(() => {
       setLoadingBoundaries(false)
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -588,6 +627,7 @@ export default function MapView({
       zoom={5}
       className="h-full w-full"
       zoomControl={false}
+      preferCanvas={true}
     >
       <TileLayer
         key={tileStyle}
@@ -627,7 +667,7 @@ export default function MapView({
 
       {isochrone?.features?.length && (
         <GeoJSON
-          key={JSON.stringify(isochrone)}
+          key={`isochrone-${isochroneKeyRef.current}`}
           data={isochrone}
           style={ISOCHRONE_STYLE}
         />
@@ -670,15 +710,6 @@ export default function MapView({
         const isHighlighted = m.zip === highlightedZip
         const entry = entryMap.get(m.zip)
         const boundary = zipBoundaries.get(m.zip)
-
-        // Debug logging
-        if (m.zip === zipMarkers![0].zip) {
-          console.log(`Rendering ZIP ${m.zip}:`, {
-            hasBoundary: !!boundary,
-            boundariesSize: zipBoundaries.size,
-            boundaryKeys: Array.from(zipBoundaries.keys()).slice(0, 5)
-          })
-        }
 
         // Only render as GeoJSON polygon in STATE search mode, use dots for COMMUTE mode
         if (boundary && searchMode === 'income' && !isochrone) {
@@ -789,3 +820,5 @@ export default function MapView({
     </div>
   )
 }
+
+export default React.memo(MapView)

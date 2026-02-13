@@ -1,22 +1,12 @@
 import { useEffect, useRef } from 'react'
 import type { HousingDataEntry, AffordabilityInputs, AffordabilityTier } from '../types'
 import { getAffordabilityTier } from '../services/mortgage'
+import { formatCurrency } from '../utils/format'
 
 interface ZipInfoBoxProps {
   entry: HousingDataEntry | null
   affordability?: AffordabilityInputs
   onClose: () => void
-}
-
-const currencyFormatter = new Intl.NumberFormat('en-US', {
-  style: 'currency',
-  currency: 'USD',
-  maximumFractionDigits: 0,
-})
-
-function formatCurrency(value: number | null): string {
-  if (value === null) return 'N/A'
-  return currencyFormatter.format(value)
 }
 
 export default function ZipInfoBox({ entry, affordability, onClose }: ZipInfoBoxProps) {
@@ -46,6 +36,7 @@ export default function ZipInfoBox({ entry, affordability, onClose }: ZipInfoBox
   // Click outside to close
   useEffect(() => {
     if (!entry) return
+    let mounted = true
 
     function handleClickOutside(e: MouseEvent) {
       if (boxRef.current && !boxRef.current.contains(e.target as Node)) {
@@ -54,11 +45,15 @@ export default function ZipInfoBox({ entry, affordability, onClose }: ZipInfoBox
     }
 
     // Delay to avoid immediate close from the click that opened it
-    setTimeout(() => {
-      document.addEventListener('mousedown', handleClickOutside)
+    const timeoutId = setTimeout(() => {
+      if (mounted) document.addEventListener('mousedown', handleClickOutside)
     }, 0)
 
-    return () => document.removeEventListener('mousedown', handleClickOutside)
+    return () => {
+      mounted = false
+      clearTimeout(timeoutId)
+      document.removeEventListener('mousedown', handleClickOutside)
+    }
   }, [entry, onClose])
 
   if (!entry) return null

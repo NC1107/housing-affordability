@@ -142,7 +142,8 @@ export function getAffordabilityTier(
     } else if (cashFlowPct < 0.15 && tier === 'affordable') {
       // Less than 15% buffer on "affordable" = downgrade to stretch
       tier = 'stretch'
-    } else if (cashFlowPct < 0.25 && tier === 'stretch') {
+    }
+    if (cashFlowPct < 0.25 && tier === 'stretch') {
       // Less than 25% buffer on "stretch" = downgrade to unaffordable
       tier = 'unaffordable'
     }

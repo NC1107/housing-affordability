@@ -36,12 +36,35 @@ function getTileUrl(style: TileStyleKey): string {
   return `https://maps.geoapify.com/v1/tile/${style}/{z}/{x}/{y}.png?apiKey=${API_KEY}`
 }
 
+function ZoomControl() {
+  const map = useMap()
+
+  useEffect(() => {
+    // Determine position based on screen size
+    const isMobile = window.innerWidth < 768
+    const position = isMobile ? 'bottomright' : 'topleft'
+
+    const zoomControl = L.control.zoom({ position })
+    zoomControl.addTo(map)
+
+    return () => {
+      zoomControl.remove()
+    }
+  }, [map])
+
+  return null
+}
+
 function TileLayerSwitcher({ style, onStyleChange }: { style: TileStyleKey; onStyleChange: (s: TileStyleKey) => void }) {
   const map = useMap()
   const containerRef = useRef<HTMLDivElement | null>(null)
 
   useEffect(() => {
     if (!API_KEY) return // No switcher without API key (only OSM tiles available)
+
+    // Hide on mobile - too cluttered, show on desktop top-right
+    const isMobile = window.innerWidth < 768
+    if (isMobile) return
 
     const control = new (L.Control.extend({
       onAdd() {
@@ -88,6 +111,10 @@ function DebugButton({ enabled, onToggle, zipCount }: { enabled: boolean; onTogg
   const containerRef = useRef<HTMLDivElement | null>(null)
 
   useEffect(() => {
+    // Hide on mobile (screen width < 768px)
+    const isMobile = window.innerWidth < 768
+    if (isMobile) return
+
     const control = new (L.Control.extend({
       onAdd() {
         const div = L.DomUtil.create('div', 'leaflet-bar')
@@ -573,7 +600,7 @@ export default function MapView({
       center={[39.8283, -98.5795]}
       zoom={5}
       className="h-full w-full"
-      zoomControl={true}
+      zoomControl={false}
     >
       <TileLayer
         key={tileStyle}
@@ -581,6 +608,7 @@ export default function MapView({
         attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
         maxZoom={19}
       />
+      <ZoomControl />
       <TileLayerSwitcher style={tileStyle} onStyleChange={setTileStyle} />
       <DebugButton
         enabled={debugMode}

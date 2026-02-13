@@ -510,10 +510,10 @@ export default function App() {
 
   return (
     <div className="flex h-screen bg-white relative">
-      {/* Hamburger Menu Button (mobile only) */}
+      {/* Hamburger Menu Button (mobile only) - positioned top-right to avoid map controls */}
       <button
         onClick={() => setSidebarOpen(!sidebarOpen)}
-        className="fixed top-4 left-4 z-50 md:hidden bg-white rounded-lg shadow-lg p-2 border border-gray-200"
+        className="fixed top-4 right-4 z-[1300] md:hidden bg-white rounded-lg shadow-lg p-2 border border-gray-200"
         aria-label={sidebarOpen ? "Close menu" : "Open menu"}
         aria-expanded={sidebarOpen}
       >
@@ -529,7 +529,7 @@ export default function App() {
       {/* Backdrop overlay (mobile only, when sidebar open) */}
       {sidebarOpen && (
         <div
-          className="fixed inset-0 bg-black/50 z-30 md:hidden"
+          className="fixed inset-0 bg-black/50 z-[1100] md:hidden"
           onClick={() => setSidebarOpen(false)}
           aria-hidden="true"
         />
@@ -540,8 +540,8 @@ export default function App() {
         role="complementary"
         aria-label="Search and filters"
         className={`
-          w-[360px] min-w-[360px] flex flex-col border-r border-gray-200 bg-gray-50/50 overflow-y-auto
-          fixed md:relative inset-y-0 left-0 z-40
+          w-full md:w-[360px] md:min-w-[360px] flex flex-col border-r border-gray-200 bg-white overflow-y-auto
+          fixed md:relative inset-y-0 left-0 z-[1200] md:z-auto
           transform transition-transform duration-300 ease-in-out
           ${sidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}
         `}

@@ -1,62 +1,84 @@
 # Housing Affordability Tool
 
-Find affordable homes nationwide based on your income and commute preferences. Search by income to see affordability nationwide, or enter a work address to explore housing options within your commute zone.
+Find affordable homes nationwide based on your income and commute preferences.
 
-**Live Demo:** [https://nc1107.github.io/housing-affordability/](https://nc1107.github.io/housing-affordability/)
+**Live Demo:** https://nc1107.github.io/housing-affordability/
+
+## Screenshots
+
+### Income-Based Nationwide Search
+![Income search interface](docs/screenshots/01-income-search.png)
+
+### Affordability Choropleth Map
+![Nationwide affordability results](docs/screenshots/02-nationwide-results.png)
 
 ## Features
 
-### 🏠 Income-Based Search
-- Search affordable housing nationwide based on your income
+**Income-Based Search**
+- Search affordable housing nationwide based on your annual income
+- Interactive state choropleth showing affordability percentages
 - Drill down by state to see detailed ZIP-level data
-- Interactive affordability tiers (affordable, stretch, unaffordable)
-- Comprehensive affordability calculator with down payment, interest rate, DTI ratios
+- Color-coded affordability tiers (green = affordable, yellow = stretch, red = unaffordable)
 
-### 🚗 Commute-Based Search
-- Draw isochrone maps showing areas reachable within X minutes
+**Commute-Based Search**
+- Enter a work address to see housing within your commute zone
 - Support for driving and public transit modes
-- Adjustable travel time (5–60 minutes)
-- See housing prices within your commute zone
+- Adjustable travel time (5-60 minutes)
+- Isochrone visualization showing reachable areas
 
-### 📊 Housing Data
-- **7.5MB bundled static data** - no database required
+**Affordability Calculator**
+- Comprehensive mortgage calculator with customizable parameters
+- Down payment percentage or dollar amount input
+- Interest rate, loan term, property tax, and insurance settings
+- DTI (debt-to-income) ratio calculations for lender approval
+- Advanced settings for monthly debts, HOA fees, and discretionary spending
+
+**Housing Data**
+- 7.5MB bundled static data - no database required
 - Median home values by ZIP (Zillow ZHVI)
 - Median market rent by ZIP (Zillow ZORI)
-- ZIP code boundaries for all 50 states
+- ZIP code boundaries (ZCTA) for all 50 states
 - Updated monthly from Zillow data
 
-### 📱 Mobile-Friendly
-- Responsive design with collapsible sidebar
+**Mobile Responsive**
 - Optimized for phone and tablet access
+- Collapsible sidebar with touch-friendly controls
 - Works offline (except address search)
 
 ## Quick Start
 
-1. **Get a free Geoapify API key** (optional - only needed for address search):
-   - Visit: https://myprojects.geoapify.com/register
-   - Income-based search works 100% without an API key
-
-2. **Set up your API key** (optional):
+1. Clone the repository
    ```bash
-   cp .env.example .env
-   # Paste your key into .env
+   git clone https://github.com/NC1107/housing-affordability.git
+   cd housing-affordability
    ```
 
-3. **Install and run:**
+2. Install dependencies
    ```bash
    npm install
+   ```
+
+3. (Optional) Set up Geoapify API key for address search
+   ```bash
+   cp .env.example .env
+   # Add your API key to .env
+   ```
+   Note: Income-based search works 100% without an API key
+
+4. Run development server
+   ```bash
    npm run dev
    ```
 
-4. **Open:** http://localhost:5173
+5. Open http://localhost:5173
 
 ## Tech Stack
 
-- **Frontend:** React 18 + Vite 6 + TypeScript 5
-- **Styling:** Tailwind CSS 4
-- **Maps:** Leaflet 1.9 + React Leaflet 4
-- **Geospatial:** Turf.js for polygon operations
-- **APIs:** Geoapify (geocoding, isochrones), Census Bureau (ZIP boundaries)
+- React 18 + Vite 6 + TypeScript 5
+- Tailwind CSS 4
+- Leaflet 1.9 + React Leaflet 4
+- Turf.js for geospatial operations
+- APIs: Geoapify (geocoding, isochrones), Census Bureau (ZIP boundaries)
 
 ## Data Sources
 
@@ -67,73 +89,61 @@ Find affordable homes nationwide based on your income and commute preferences. S
 | Census Gazetteer | ZIP code centroids (lat/lon) | Decennial |
 | Census TIGER/Line | ZIP (ZCTA) boundaries GeoJSON | Annual |
 
+## Deployment
+
+This app is configured for GitHub Pages deployment.
+
+**Build and preview locally:**
+```bash
+npm run build
+npx vite preview
+```
+
+The `vite.config.ts` uses conditional base paths:
+- Development: `base: '/'` (localhost:5173)
+- Production: `base: '/housing-affordability/'` (GitHub Pages)
+
+GitHub Actions automatically builds and deploys on push to `main` branch.
+
 ## Updating Housing Data
 
-To refresh housing data with the latest Zillow numbers:
+Refresh housing data with latest Zillow numbers:
 
 ```bash
 npm run fetch-data
 ```
 
-This downloads:
-- Latest Zillow ZHVI (home values) CSV
-- Latest Zillow ZORI (rents) CSV
+This downloads and processes:
+- Latest Zillow ZHVI (home values) and ZORI (rents) CSV files
 - Census ZIP code centroids
-- Processes into optimized JSON bundles in `public/data/`
+- Generates optimized JSON bundles in `public/data/`
 
-## Deployment
-
-This app is configured for GitHub Pages deployment at a subdirectory path.
-
-**Current setup:** Deploys to `https://nc1107.github.io/housing-affordability/`
-
-The `vite.config.ts` uses conditional base paths:
-- **Development:** `base: '/'` (runs at localhost:5173)
-- **Production:** `base: '/housing-affordability/'` (GitHub Pages subdirectory)
-
-To deploy to your own GitHub Pages:
-
-1. Create a new repository (e.g., `housing-affordability`)
-2. Update `base` in `vite.config.ts` if using different subdirectory
-3. Set up GitHub Actions workflow (see `.github/workflows/deploy.yml`)
-4. Push to trigger automatic deployment
-
-See [DEPLOYMENT.md](./DEPLOYMENT.md) for detailed deployment instructions.
-
-## API Credits
+## API Usage
 
 **Geoapify free tier:** 3,000 credits/day
 
-Each isochrone request costs approximately `minutes / 5` credits:
+Isochrone cost: approximately `minutes / 5` credits
 - 15 min = ~3 credits
 - 30 min = ~6 credits
 - 60 min = ~12 credits
 
-Income-based search uses **zero API credits** - only address search requires the API.
+Income-based search uses zero API credits - only address search requires the API.
 
 ## Development
 
 ```bash
-# Install dependencies
-npm install
-
-# Run dev server
-npm run dev
-
-# Type check
-npm run build
-
-# Preview production build
-npm run build && npx vite preview
+npm install          # Install dependencies
+npm run dev          # Start dev server
+npm run build        # Build for production
+npm run preview      # Preview production build
 ```
 
 ## License
 
 MIT
 
-## Credits
+## Data Credits
 
-Built with data from:
-- [Zillow Research](https://www.zillow.com/research/data/) (ZHVI/ZORI)
-- [US Census Bureau](https://www.census.gov/geographies/mapping-files.html) (ZIP boundaries)
-- [Geoapify](https://www.geoapify.com/) (geocoding & isochrones)
+- [Zillow Research](https://www.zillow.com/research/data/) - ZHVI/ZORI housing data
+- [US Census Bureau](https://www.census.gov/geographies/mapping-files.html) - ZIP boundaries and centroids
+- [Geoapify](https://www.geoapify.com/) - Geocoding and isochrone generation

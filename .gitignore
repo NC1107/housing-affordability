@@ -29,7 +29,7 @@ Desktop.ini
 *~
 
 # Claude Code settings (local only)
-.claude/settings.local.json
+.claude/*
 
 # Temporary files
 *.tmp

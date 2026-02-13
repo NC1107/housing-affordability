@@ -26,7 +26,24 @@
       "Bash(powershell:*)",
       "mcp__plugin_playwright_playwright__browser_run_code",
       "WebFetch(domain:www.aei.org)",
-      "WebFetch(domain:raw.githubusercontent.com)"
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "WebFetch(domain:apidocs.geoapify.com)",
+      "WebFetch(domain:openmaptiles.org)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:www2.census.gov)",
+      "WebFetch(domain:www.huduser.gov)",
+      "WebFetch(domain:www.redfin.com)",
+      "WebFetch(domain:engelsjk.com)",
+      "WebFetch(domain:eric.clst.org)",
+      "Bash(npm run build-zcta:*)",
+      "Bash(npm run dev:*)",
+      "Bash(timeout:*)",
+      "WebSearch",
+      "Bash(npx playwright-mcp:*)",
+      "Bash(findstr:*)",
+      "Bash(ls:*)",
+      "Bash(npx:*)",
+      "Bash(npm run build:*)"
     ]
   }
 }
